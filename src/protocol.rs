@@ -58,7 +58,7 @@ macro_rules! impl_protocol_component {
 }
 
 pub const PROTOCOL_VERSION: u32 = 0x0d000001;
-pub const PROTOCOL_BUF_SIZE: usize = 1024 * 256;
+pub const PROTOCOL_BUF_SIZE: usize = 1024 * 1024; // 1MB
 
 bitflags! {
     pub struct Flags:u32 {

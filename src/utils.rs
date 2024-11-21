@@ -1,4 +1,7 @@
-use std::fs::{File, OpenOptions};
+use std::{
+    fs::{File, OpenOptions},
+    time::Instant,
+};
 
 use log::trace;
 use sha2::{Digest, Sha256};
@@ -22,13 +25,24 @@ pub fn copy_stream(
     );
     let mut buf = vec![0u8; buf_size];
     let mut recv = 0 as usize;
+    let mut times = 0f64;
     loop {
         if expected_size - recv <= 0 {
-            trace!("copy_stream: Done");
+            trace!(
+                "copy_stream: Done, speed {} KiB/s",
+                recv as f64 / 1024.0f64 / times
+            );
             break;
         }
+        let begin = Instant::now();
         let n = src.read(&mut buf)?;
-        trace!("copy_stream: Read {} bytes", n);
+        let elapsed = begin.elapsed().as_micros() as f64 / 1_000_000.0f64;
+        trace!(
+            "copy_stream: Read {} bytes, speed {} KiB/s",
+            n,
+            n as f64 / 1024.0f64 / elapsed
+        );
+        times += elapsed;
         if n == 0 {
             trace!("copy_stream: EOF reached");
             break;

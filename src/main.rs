@@ -6,13 +6,13 @@ mod utils;
 
 use clap::Parser;
 use log::debug;
-use utils::to_hex_string;
 
 use crate::cli::{Args, SubCommand};
 use crate::client::{recv_main, send_main};
-use crate::daemon::daemon_main;
+use crate::utils::to_hex_string;
 
-fn main() -> anyhow::Result<()> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     simple_logger::SimpleLogger::new().env().init().unwrap();
 
     let args = Args::parse();
@@ -23,7 +23,7 @@ fn main() -> anyhow::Result<()> {
     debug!("Token: {:?}", to_hex_string(&token));
 
     match args.subcommand {
-        SubCommand::Daemon => daemon_main(listen, token, args.allow_overwrite),
+        SubCommand::Daemon => daemon::daemon_main(listen, token, args.allow_overwrite).await,
         SubCommand::Push {
             local_file,
             remote_file,

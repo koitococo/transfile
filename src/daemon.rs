@@ -1,18 +1,20 @@
-use std::{
-    io::Read,
-    os::unix::net::{UnixListener, UnixStream},
-    path::Path,
-};
-
-use anyhow::Ok;
-use log::{debug, error, info, warn};
-
 use crate::{
     protocol::{
         Flags, Header, ProtocolComponent, Response, ResponseError, Status, PROTOCOL_BUF_SIZE,
         PROTOCOL_VERSION,
     },
     utils::{copy_stream, open_file, OpenFileOperation},
+};
+use anyhow::Ok;
+use log::{debug, error, info, warn};
+use std::{
+    io::Read,
+    os::unix::net::UnixStream,
+    path::Path,
+};
+use tokio::{
+    net::UnixListener,
+    signal::unix::SignalKind,
 };
 
 fn check_protocol_version(stream: &mut UnixStream, header: &Header) -> anyhow::Result<()> {
@@ -138,7 +140,12 @@ fn send_main(stream: &mut UnixStream, path: String) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn loop_main(mut stream: UnixStream, token: [u8; 32], allow_overwrite: bool) -> anyhow::Result<()> {
+fn main(
+    stream: tokio::net::UnixStream,
+    token: [u8; 32],
+    allow_overwrite: bool,
+) -> anyhow::Result<()> {
+    let mut stream: UnixStream = stream.into_std()?;
     let header = Header::from_stream(&mut stream)?;
     check_protocol_version(&mut stream, &header)?;
     check_token(&mut stream, &header, &token)?;
@@ -169,18 +176,41 @@ fn loop_main(mut stream: UnixStream, token: [u8; 32], allow_overwrite: bool) -> 
     }
 }
 
-pub(crate) fn daemon_main(
+fn handle(
+    r: (tokio::net::UnixStream, tokio::net::unix::SocketAddr),
+    token: [u8; 32],
+    allow_overwrite: bool,
+) -> anyhow::Result<()> {
+    let (stream, addr) = r;
+    info!("Accepted connection from: {:?}", addr);
+    tokio::spawn(async move {
+        if let Err(e) = main(stream, token, allow_overwrite) {
+            error!("Error while processing request: {:?}", e);
+        }
+    });
+    Ok(())
+}
+
+pub(crate) async fn daemon_main(
     listen: String,
     token: [u8; 32],
     allow_overwrite: bool,
 ) -> anyhow::Result<()> {
-    info!("Running as daemon");
+    debug!("Setting up daemon");
     let sock = UnixListener::bind(listen)?;
-    loop {
-        let (stream, addr) = sock.accept()?;
-        info!("Accepted connection from: {:?}", addr);
-        if let Err(e) = loop_main(stream, token.clone(), allow_overwrite) {
-            error!("Error while processing request: {:?}", e);
+    let mut signals = tokio::signal::unix::signal(SignalKind::interrupt())?;
+    let mut running = true;
+    info!("Running as daemon");
+    while running {
+        tokio::select! {
+            _ = signals.recv() => {
+                info!("Received signal, exiting");
+                running = false;
+            }
+            r  =  sock.accept() => {
+                handle(r?,token,allow_overwrite)?;
+            }
         }
     }
+    Ok(())
 }
